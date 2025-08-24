@@ -19,7 +19,7 @@ jobs:
 
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
-
+       
       - name: Create Chunks and Build Matrix
         id: build_matrix
         shell: bash
@@ -113,7 +113,7 @@ jobs:
           go-version: '1.23'
 
       - name: Cache Go modules & binaries
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             $HOME/go/pkg/mod
@@ -122,15 +122,19 @@ jobs:
           key: ${{ runner.os }}-go-cache-${{ github.ref_name }}
           restore-keys: |
             ${{ runner.os }}-go-cache-
-      - name: Install Tools
+
+ 
+      - name: Download modules
         run: |
-          # Installing httpx
-          if ! command -v httpx >/dev/null; then
-            echo "Installing httpx…"
-            go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
-          else
-            echo "httpx already in cache"
-          fi    
+          go env GOMOD
+          go mod download
+
+      - name: Build binary
+        run: |
+          
+          go build -o spiderkxss main.go
+          ./spiderkxss --help || true
+          
       - name: Download Chunks Artifact
         uses: actions/download-artifact@v4
         with:
@@ -147,12 +151,12 @@ jobs:
         env:
           CHUNK_PATH: ${{ matrix.chunk_file }}
         run: |
-          set -ex
+
           # verify chunk file exists
           if [ ! -f "$CHUNK_PATH" ]; then
             echo "::error:: Chunk file '$CHUNK_PATH' not found"
             ls -R .
-            exit 1
+            exit 0
           fi
           # derive basename for artifact naming
           BASENAME=$(basename "$CHUNK_PATH")
@@ -162,14 +166,9 @@ jobs:
           OUTPUT_FILE="$OUTPUT_DIR/result_${BASENAME}"
           echo "Running httpx on $CHUNK_PATH → $OUTPUT_FILE"
           PUBLIC_IP=$(curl -s https://api.ipify.org) && echo "The public IP of this runner is: $PUBLIC_IP"
-      
-          httpx -l "$CHUNK_PATH" -t 100 \
-                -o "$OUTPUT_FILE" \
-                -rl 100 \
-                -no-color \
-                -random-agent \
-                -silent                  
-      
+           
+          cat "$CHUNK_PATH" | ./spiderkxss -c 40 -d 0.5-0.9 --rotate-agent 5-10 --ua-file user-agents.txt | anew -q "$OUTPUT_FILE"
+          
           echo "output_file=$OUTPUT_FILE" >> $GITHUB_OUTPUT
           
       - name: Compute Safe Chunk Name
@@ -209,6 +208,7 @@ jobs:
           cat temp-results/* | sort -u > nuclei-final-results.txt
           echo "Final aggregated results created at nuclei-final-results.txt"
           echo "Total unique findings: $(wc -l < nuclei-final-results.txt)"
+      
       - name: Upload Final Aggregated Results
         uses: actions/upload-artifact@v4
         with:

@@ -138,8 +138,7 @@ jobs:
             echo "Created go.mod; CI will proceed but please commit go.mod/go.sum to repo for reproducible builds."
             go env GOMOD || true
           fi
-          
-          
+                    
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -156,6 +155,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-cache-
 
+      - name: Install Tools
+        run: |
+            
+            go install -v github.com/tomnomnom/anew@latest
  
       - name: Download modules
         run: |

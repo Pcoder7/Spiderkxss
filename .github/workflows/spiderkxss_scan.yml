@@ -24,36 +24,57 @@ jobs:
         id: build_matrix
         shell: bash
         run: |
-
           # --- 1. CONFIGURATION AND SETUP ---
-          INPUT_FILE="target.txt"
           CHUNK_SIZE=100
           CHUNK_DIR="chunks"
-          if [ ! -f "$INPUT_FILE" ]; then
-            echo "::error::Input file '$INPUT_FILE' not found in the repository root."
+          COMBINED_FILE="combined_targets.txt"
+
+          # Ensure the combined file is empty before we start
+          > "$COMBINED_FILE"
+
+          # Check for the domains.txt file which lists the domains to process
+          if [ ! -f "domains.txt" ]; then
+            echo "::error::Input file 'domains.txt' not found in the repository root."
             exit 0
           fi
+
+          echo "-> Starting download of filtered.txt files based on domains.txt..."
+
+          # --- 2. DOWNLOAD AND COMBINE ALL INPUT FILES ---
+          # Read domains.txt line-by-line, trim whitespace, and ignore comments/empty lines
+          
+          grep -v '^\s*#\|^\s*$' domains.txt | while IFS= read -r domain; do
+            # The 'refs/heads/main' can be simplified to just 'main'
+            URL="https://raw.githubusercontent.com/Pcoder7/ssrf-automation/main/results/${domain}/filtered.txt"
+            echo "-> Downloading from: $URL"
+            
+            # Use wget: -q (quiet), -O - (output to stdout).
+            # The '|| true' prevents the script from failing if one file doesn't exist (e.g., 404 error).
+            wget -qO - "$URL" >> "$COMBINED_FILE" || echo "::warning::Failed to download for ${domain}. File may not exist."
+          done
+          
+          # --- 3. VALIDATE DOWNLOADED CONTENT AND SPLIT INTO CHUNKS ---
+          # Check if the combined file has any content before proceeding (-s checks for size > 0)
+          if [ ! -s "$COMBINED_FILE" ]; then
+            echo "::warning::No content was downloaded from any of the filtered.txt files. No work to do."
+            echo "matrix=[]" >> "$GITHUB_OUTPUT"
+            echo "chunk_count=0" >> "$GITHUB_OUTPUT"
+            exit 0 # Exit successfully
+          fi
+
           mkdir -p "$CHUNK_DIR"
-          echo "-> Splitting '$INPUT_FILE' into chunks of $CHUNK_SIZE lines..."
-          split -l "$CHUNK_SIZE" -a 3 --numeric-suffixes=1 "$INPUT_FILE" "$CHUNK_DIR/chunk_"
+          echo "-> Splitting '$COMBINED_FILE' into chunks of $CHUNK_SIZE lines..."
+          split -l "$CHUNK_SIZE" -a 3 --numeric-suffixes=1 "$COMBINED_FILE" "$CHUNK_DIR/chunk_"
           
           echo "-> Chunk files created in '$CHUNK_DIR' directory:"
           ls -l "$CHUNK_DIR"
      
           CHUNK_COUNT=$(find "$CHUNK_DIR" -type f -name 'chunk_*' | wc -l)
-          if [ "$CHUNK_COUNT" -eq 0 ]; then
-            echo "::warning::Splitting produced 0 chunk files. No work to do."
-            echo "matrix=[]" >> "$GITHUB_OUTPUT"
-            echo "chunk_count=0" >> "$GITHUB_OUTPUT"
-            exit 0 # Exit successfully as there is no work
-          fi
           echo "-> Found $CHUNK_COUNT chunk files to process."
           
-          # --- 3. BUILD THE MATRIX (SIMPLIFIED & DIRECT METHOD) ---
-
-          
+          # --- 4. BUILD THE MATRIX AND OUTPUT ---
           JSON_MATRIX=$(find "$CHUNK_DIR" -type f -name 'chunk_*' | jq -R -s -c 'split("\n") | map(select(length > 0))')
-          # --- 4. VERIFY AND OUTPUT ---
+          
           echo "-> Verifying that the generated matrix is valid JSON..."
           echo "$JSON_MATRIX" | jq .
           

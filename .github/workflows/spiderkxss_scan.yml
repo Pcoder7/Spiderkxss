@@ -1,4 +1,4 @@
-name: Testing tools against a file
+name: Spider Kxss Running
 
 on:
   workflow_dispatch: # Allows you to run this workflow manually
@@ -24,15 +24,14 @@ jobs:
         id: build_matrix
         shell: bash
         run: |
-          # Exit on any error, print all commands to the log for debugging
-          set -ex
+
           # --- 1. CONFIGURATION AND SETUP ---
           INPUT_FILE="target.txt"
           CHUNK_SIZE=100
           CHUNK_DIR="chunks"
           if [ ! -f "$INPUT_FILE" ]; then
             echo "::error::Input file '$INPUT_FILE' not found in the repository root."
-            exit 1
+            exit 0
           fi
           mkdir -p "$CHUNK_DIR"
           echo "-> Splitting '$INPUT_FILE' into chunks of $CHUNK_SIZE lines..."
@@ -40,8 +39,7 @@ jobs:
           
           echo "-> Chunk files created in '$CHUNK_DIR' directory:"
           ls -l "$CHUNK_DIR"
-          # --- 2. COUNT THE CHUNKS ---
-          # A simple and reliable way to count the files.
+     
           CHUNK_COUNT=$(find "$CHUNK_DIR" -type f -name 'chunk_*' | wc -l)
           if [ "$CHUNK_COUNT" -eq 0 ]; then
             echo "::warning::Splitting produced 0 chunk files. No work to do."
@@ -50,10 +48,9 @@ jobs:
             exit 0 # Exit successfully as there is no work
           fi
           echo "-> Found $CHUNK_COUNT chunk files to process."
+          
           # --- 3. BUILD THE MATRIX (SIMPLIFIED & DIRECT METHOD) ---
-          # This is the most robust way: list files, pipe to jq to build the JSON.
-          # The jq command transforms each line of input into a JSON object.
-          # The -R (raw input) and -s (slurp) flags read the entire input into a single array.
+
           
           JSON_MATRIX=$(find "$CHUNK_DIR" -type f -name 'chunk_*' | jq -R -s -c 'split("\n") | map(select(length > 0))')
           # --- 4. VERIFY AND OUTPUT ---
@@ -65,6 +62,7 @@ jobs:
           
           echo "matrix=$JSON_MATRIX" >> "$GITHUB_OUTPUT"
           echo "chunk_count=$CHUNK_COUNT" >> "$GITHUB_OUTPUT"
+          
       - name: Upload Chunks as Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -79,7 +77,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # This creates a parallel job for each file path in the matrix output from the previous job
+        
         chunk_file: ${{ fromJson(needs.prepare-chunks.outputs.matrix) }}
     steps:
       - name: Checkout Repository
@@ -117,9 +115,11 @@ jobs:
         with:
           name: output-chunks
           path: chunks/
+     
       - name: Debug Matrix Context
         run: |
           echo "matrix.chunk_file = ${{ matrix.chunk_file }}"
+          
       - name: Run tools on Chunks
         id: run_tool
         shell: bash
@@ -141,14 +141,14 @@ jobs:
           OUTPUT_FILE="$OUTPUT_DIR/result_${BASENAME}"
           echo "Running httpx on $CHUNK_PATH → $OUTPUT_FILE"
           PUBLIC_IP=$(curl -s https://api.ipify.org) && echo "The public IP of this runner is: $PUBLIC_IP"
-          # fixed spacing between flags
+      
           httpx -l "$CHUNK_PATH" -t 100 \
                 -o "$OUTPUT_FILE" \
                 -rl 100 \
                 -no-color \
                 -random-agent \
                 -silent                  
-          # ------------------------------------
+      
           echo "output_file=$OUTPUT_FILE" >> $GITHUB_OUTPUT
           
       - name: Compute Safe Chunk Name
@@ -156,6 +156,7 @@ jobs:
         run: |
           SAFE_CHUNK="$(echo "${{ matrix.chunk_file }}" | tr '/' '_')"
           echo "safe_chunk=$SAFE_CHUNK" >> $GITHUB_OUTPUT
+          
       - name: Upload Individual Result Artifact
         uses: actions/upload-artifact@v4
         with:
